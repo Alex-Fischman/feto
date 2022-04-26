@@ -1,0 +1,62 @@
+[gd_scene load_steps=10 format=2]
+
+[ext_resource path="res://Scripts/Player.gd" type="Script" id=1]
+[ext_resource path="res://Scenes/Heat.tscn" type="PackedScene" id=2]
+[ext_resource path="res://Scripts/Symbols.gd" type="Script" id=3]
+[ext_resource path="res://IconMaterial.tres" type="Material" id=4]
+[ext_resource path="res://Scenes/Yeet.tscn" type="PackedScene" id=5]
+[ext_resource path="res://Scenes/Trap.tscn" type="PackedScene" id=6]
+
+[sub_resource type="ArrayMesh" id=1]
+
+[sub_resource type="CapsuleShape" id=2]
+radius = 0.5
+
+[sub_resource type="CapsuleMesh" id=3]
+radius = 0.5
+
+[node name="Player" type="KinematicBody"]
+script = ExtResource( 1 )
+MODIFIER_AIR = 2.0
+MODIFIER_FIRE = 2.0
+MODIFIER_ACID = 2.0
+MODIFIER_PRESSURE_SPACE = 2.0
+MODIFIER_PRESSURE_STRENGTH = 2.0
+MODIFIER_SHOCK = 2.0
+MODIFIER_RADIANCE = 2.0
+MODIFIER_LIFE = 2.0
+INITIAL_TRAVEL_TIME = 10.0
+INITIAL_TRAVEL_DIST = 100.0
+SPEED = 5.0
+SPEED_LERP = 0.5
+MOUSE = 0.01
+GRAVITY = 1.0
+YEET = ExtResource( 5 )
+HEAT = ExtResource( 2 )
+TRAP = ExtResource( 6 )
+
+[node name="Camera" type="Camera" parent="."]
+transform = Transform( 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.5, 0 )
+fov = 90.0
+
+[node name="Symbols" type="MeshInstance" parent="Camera"]
+transform = Transform( 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -2 )
+material_override = ExtResource( 4 )
+cast_shadow = 0
+mesh = SubResource( 1 )
+skeleton = NodePath("")
+script = ExtResource( 3 )
+DISTANCE = 2.0
+SCALING = 0.9
+WIDTH = 0.05
+OUTER = 0.5
+LERP = 0.5
+
+[node name="CollisionShape" type="CollisionShape" parent="."]
+transform = Transform( 1, 0, 0, 0, -4.37114e-08, -1, 0, 1, -4.37114e-08, 0, 1, 0 )
+shape = SubResource( 2 )
+
+[node name="MeshInstance" type="MeshInstance" parent="CollisionShape"]
+mesh = SubResource( 3 )
+material/0 = null
+[connection signal="spell_update" from="." to="Camera/Symbols" method="_on_spell_update"]

@@ -26,3 +26,9 @@ impl Mul<f32> for Vector {
 		Vector { x: self.x * other, y: self.y * other }
 	}
 }
+
+impl AddAssign for Vector {
+	fn add_assign(&mut self, other: Vector) {
+		*self = Vector { x: self.x + other.x, y: self.y + other.y }
+	}
+}

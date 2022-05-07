@@ -1,5 +1,6 @@
 use std::ops::*;
 
+#[repr(C)]
 #[derive(Copy, Clone)]
 pub struct Vector {
 	pub x: f32,
@@ -29,6 +30,18 @@ impl Mul<f32> for Vector {
 
 impl AddAssign for Vector {
 	fn add_assign(&mut self, other: Vector) {
-		*self = Vector { x: self.x + other.x, y: self.y + other.y }
+		*self = *self + other;
+	}
+}
+
+impl MulAssign<f32> for Vector {
+	fn mul_assign(&mut self, other: f32) {
+		*self = *self * other;
+	}
+}
+
+impl Vector {
+	pub fn length(self) -> f32 {
+		(self.x * self.x + self.y * self.y).sqrt()
 	}
 }

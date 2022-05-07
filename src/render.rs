@@ -67,8 +67,6 @@ impl State {
 		encoder: &mut wgpu::CommandEncoder,
 		view: &wgpu::TextureView,
 	) {
-		let shader = self.device.create_shader_module(&renderable.shader());
-
 		let mut vertices = renderable.vertices();
 		let aspect = self.config.height as f32 / self.config.width as f32;
 		for vertex in &mut vertices {
@@ -84,6 +82,7 @@ impl State {
 			contents: bytes(&vertices),
 			usage: wgpu::BufferUsages::VERTEX,
 		});
+		let shader = self.device.create_shader_module(&renderable.shader());
 		let pipeline = self.device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
 			label: None,
 			layout: None,

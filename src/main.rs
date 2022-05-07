@@ -29,7 +29,7 @@ enum Shape {
 
 impl render::Renderable<Color> for Object {
 	fn shader(&self) -> wgpu::ShaderModuleDescriptor {
-		wgpu::include_wgsl!("shader.wgsl")
+		wgpu::include_wgsl!("flat.wgsl")
 	}
 
 	fn vertex_layout(&self) -> Vec<wgpu::VertexAttribute> {

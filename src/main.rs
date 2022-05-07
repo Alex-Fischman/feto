@@ -14,12 +14,43 @@ struct Object {
 
 impl Object {
 	fn new(x: f32, y: f32, color: Color, shape: Shape) -> Object {
-		Object { pos: Vector { x, y }, vel: Vector { x: 0.0, y: 0.0 }, color, shape }
+		Object { pos: Vector { x, y }, vel: Vector::new(0.0, 0.0), color, shape }
 	}
 
-	fn update(&mut self, delta_time: std::time::Duration) {
-		let delta_time = delta_time.as_micros() as f32 / 1000.0 / 1000.0;
+	fn move_and_collide(&mut self, colliders: &[Object], delta_time: f32) -> bool {
+		let mut collided = false;
 		self.pos += self.vel * delta_time;
+		'outer: loop {
+			for collider in colliders {
+				if collide(self, collider) {
+					collided = true;
+					match (&self.shape, &collider.shape) {
+						(Shape::Aabb(sw, sh), Shape::Aabb(cw, ch)) => {
+							let red =
+								((self.pos.y - sh / 2.0) - (collider.pos.y + ch / 2.0)).abs();
+							let black =
+								((self.pos.x - sw / 2.0) - (collider.pos.x + cw / 2.0)).abs();
+							let yellow =
+								((self.pos.y + sh / 2.0) - (collider.pos.y - ch / 2.0)).abs();
+							let purple =
+								((self.pos.x + sw / 2.0) - (collider.pos.x - cw / 2.0)).abs();
+							self.pos += if red < black && red < yellow && red < purple {
+								Vector::new(0.0, red)
+							} else if black < red && black < yellow && black < purple {
+								Vector::new(black, 0.0)
+							} else if yellow < red && yellow < black && yellow < purple {
+								Vector::new(0.0, -yellow)
+							} else {
+								Vector::new(-purple, 0.0)
+							};
+						}
+					}
+					continue 'outer;
+				}
+			}
+			break;
+		}
+		collided
 	}
 }
 
@@ -61,6 +92,58 @@ fn collide(a: &Object, b: &Object) -> bool {
 	}
 }
 
+use std::collections::HashMap;
+use winit::event::VirtualKeyCode;
+struct Keys(HashMap<VirtualKeyCode, bool>);
+
+impl Keys {
+	fn new() -> Keys {
+		Keys(HashMap::new())
+	}
+
+	fn is_key_held(&self, key: VirtualKeyCode) -> bool {
+		match self.0.get(&key) {
+			None => false,
+			Some(false) => false,
+			Some(true) => true,
+		}
+	}
+}
+
+const TICKRATE: f32 = 100.0;
+const GRAVITY: f32 = 10.0;
+const JUMP: f32 = 2.0;
+const GROUND_CHECK: f32 = 0.0001;
+const CEILING_BOUNCE: f32 = -0.01;
+fn update(rect: &mut Object, ground: &[Object], keys: &mut Keys) {
+	let vx = if keys.is_key_held(VirtualKeyCode::A) {
+		-1.0
+	} else if keys.is_key_held(VirtualKeyCode::D) {
+		1.0
+	} else {
+		0.0
+	};
+
+	rect.pos.y -= GROUND_CHECK;
+	let on_ground = ground.iter().any(|collider| collide(rect, collider));
+	rect.pos.y += GROUND_CHECK * 2.0;
+	let on_ceiling = ground.iter().any(|collider| collide(rect, collider));
+	rect.pos.y -= GROUND_CHECK;
+
+	let vy = if keys.is_key_held(VirtualKeyCode::Space) && on_ground {
+		JUMP
+	} else if on_ground {
+		0.0
+	} else if on_ceiling {
+		CEILING_BOUNCE
+	} else {
+		rect.vel.y - GRAVITY / TICKRATE
+	};
+
+	rect.vel = Vector::new(vx, vy);
+	rect.move_and_collide(ground, 1.0 / TICKRATE);
+}
+
 async fn run() {
 	env_logger::init();
 
@@ -68,10 +151,17 @@ async fn run() {
 	let window = winit::window::WindowBuilder::new().build(&event_loop).unwrap();
 	let mut state = render::State::new(&window).await;
 	let mut then = std::time::Instant::now();
-	let mut keys = std::collections::HashMap::new();
+	let mut leftover_time = 0.0;
+	let mut keys = Keys::new();
 
 	let mut rect = Object::new(0.0, 0.5, [0.0, 0.0, 1.0], Shape::Aabb(0.1, 0.1));
-	let ground = Object::new(0.0, 0.0, [0.0; 3], Shape::Aabb(0.4, 0.4));
+	let ground = [
+		Object::new(0.0, 1.5, [0.0; 3], Shape::Aabb(3.0, 1.0)),
+		Object::new(0.0, -1.5, [0.0; 3], Shape::Aabb(3.0, 1.0)),
+		Object::new(1.5, 0.0, [0.0; 3], Shape::Aabb(1.0, 3.0)),
+		Object::new(-1.5, 0.0, [0.0; 3], Shape::Aabb(1.0, 3.0)),
+		Object::new(0.0, -0.25, [0.0; 3], Shape::Aabb(1.0, 1.0)),
+	];
 
 	event_loop.run(move |event, _, control_flow| {
 		use winit::{event::Event, event::WindowEvent, event_loop::ControlFlow};
@@ -80,7 +170,13 @@ async fn run() {
 			Event::WindowEvent { event, window_id } if window_id == window.id() => match event {
 				WindowEvent::KeyboardInput { input, .. } => match input.virtual_keycode {
 					Some(key) => {
-						keys.insert(key, input.state == winit::event::ElementState::Pressed);
+						keys.0.insert(
+							key,
+							match input.state {
+								winit::event::ElementState::Pressed => true,
+								winit::event::ElementState::Released => false,
+							},
+						);
 					}
 					None => {}
 				},
@@ -98,26 +194,14 @@ async fn run() {
 				let delta_time = now - then;
 				then = now;
 
-				rect.vel.x = if let Some(true) = keys.get(&winit::event::VirtualKeyCode::A) {
-					-1.0
-				} else if let Some(true) = keys.get(&winit::event::VirtualKeyCode::D) {
-					1.0
-				} else {
-					0.0
-				};
-				rect.vel.y = if let Some(true) = keys.get(&winit::event::VirtualKeyCode::S) {
-					-1.0
-				} else if let Some(true) = keys.get(&winit::event::VirtualKeyCode::W) {
-					1.0
-				} else {
-					0.0
-				};
-				if rect.vel.length() != 0.0 {
-					rect.vel *= 1.0 / rect.vel.length();
+				let delta_time = delta_time.as_micros() as f32 / 1000.0 / 1000.0;
+				let updates_time = delta_time + leftover_time;
+				let updates_to_run = (updates_time * TICKRATE).floor();
+				leftover_time = updates_time - updates_to_run / TICKRATE;
+
+				for _ in 0..updates_to_run as usize {
+					update(&mut rect, &ground, &mut keys);
 				}
-				rect.update(delta_time);
-				rect.color =
-					if collide(&rect, &ground) { [0.0, 0.0, 1.0] } else { [1.0, 0.0, 0.0] };
 
 				match state.surface.get_current_texture() {
 					Err(e) => {
@@ -147,7 +231,9 @@ async fn run() {
 							}],
 							depth_stencil_attachment: None,
 						});
-						state.render(&ground, &mut encoder, &view);
+						for object in &ground {
+							state.render(object, &mut encoder, &view);
+						}
 						state.render(&rect, &mut encoder, &view);
 						state.queue.submit(std::iter::once(encoder.finish()));
 						output.present();

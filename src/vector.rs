@@ -41,7 +41,24 @@ impl MulAssign<f32> for Vector {
 }
 
 impl Vector {
+	pub fn new(x: f32, y: f32) -> Vector {
+		Vector { x, y }
+	}
+
+	pub fn dot(self, other: Vector) -> f32 {
+		self.x * other.x + self.y * other.y
+	}
+
 	pub fn length(self) -> f32 {
-		(self.x * self.x + self.y * self.y).sqrt()
+		self.dot(self).sqrt()
+	}
+
+	pub fn normalized(self) -> Option<Vector> {
+		let l = self.length();
+		if l == 0.0 {
+			None
+		} else {
+			Some(self * (1.0 / l))
+		}
 	}
 }

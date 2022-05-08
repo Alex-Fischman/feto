@@ -1,5 +1,6 @@
 use std::ops::*;
 
+#[allow(dead_code)]
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct Vector {

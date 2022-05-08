@@ -2,8 +2,46 @@ mod object;
 mod render;
 mod vector;
 
-use object::Object;
+use object::{Object, Shape};
 use vector::Vector;
+
+type Color = [f32; 3];
+struct ColoredObject {
+	object: Object,
+	color: Color,
+}
+
+impl ColoredObject {
+	fn new(x: f32, y: f32, color: Color, shape: Shape) -> ColoredObject {
+		ColoredObject { object: Object::new(x, y, shape), color }
+	}
+}
+
+use render::Vertex;
+impl crate::render::Renderable<Color> for ColoredObject {
+	fn shader(&self) -> wgpu::ShaderModuleDescriptor {
+		wgpu::include_wgsl!("flat.wgsl")
+	}
+
+	fn vertex_layout(&self) -> Vec<wgpu::VertexAttribute> {
+		wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x3].to_vec()
+	}
+
+	fn vertices(&self) -> Vec<Vertex<Color>> {
+		let p = self.object.pos;
+		match self.object.shape {
+			Shape::Aabb(Vector { x: w, y: h }) => vec![
+				Vertex::new(p.x - w / 2.0, p.y - h / 2.0, self.color),
+				Vertex::new(p.x + w / 2.0, p.y - h / 2.0, self.color),
+				Vertex::new(p.x - w / 2.0, p.y + h / 2.0, self.color),
+				Vertex::new(p.x + w / 2.0, p.y + h / 2.0, self.color),
+				Vertex::new(p.x - w / 2.0, p.y + h / 2.0, self.color),
+				Vertex::new(p.x + w / 2.0, p.y - h / 2.0, self.color),
+			],
+			Shape::Line(_dir) => todo!(),
+		}
+	}
+}
 
 use std::collections::HashMap;
 use winit::event::VirtualKeyCode;
@@ -12,12 +50,13 @@ const TICKRATE: f32 = 100.0;
 const GRAVITY: f32 = 10.0;
 const JUMP: f32 = 3.0;
 const MOVE: f32 = 1.0;
-const GROUND_CHECK: f32 = 0.0001;
 const CEILING_BOUNCE: f32 = -0.01;
+const PLAYER_HEIGHT: f32 = 0.2;
+const GROUND_CHECK: f32 = 0.0001;
 
 struct World {
-	player: Object,
-	ground: Vec<Object>,
+	player: ColoredObject,
+	ground: Vec<ColoredObject>,
 	keys: HashMap<VirtualKeyCode, bool>,
 }
 
@@ -34,13 +73,26 @@ impl World {
 				0.0
 			};
 
-		self.player.pos.y -= GROUND_CHECK;
-		let on_ground =
-			self.ground.iter().any(|collider| object::collide(&self.player, collider));
-		self.player.pos.y += GROUND_CHECK * 2.0;
-		let on_ceiling =
-			self.ground.iter().any(|collider| object::collide(&self.player, collider));
-		self.player.pos.y -= GROUND_CHECK;
+		let ceiling_ray = Object::new(
+			self.player.object.pos.x,
+			self.player.object.pos.y,
+			Shape::Line(Vector::new(0.0, PLAYER_HEIGHT / 2.0 + GROUND_CHECK)),
+		);
+		let on_ceiling = self.ground.iter().any(|g| object::collide(&ceiling_ray, &g.object));
+		let ground_ray = Object::new(
+			self.player.object.pos.x,
+			self.player.object.pos.y,
+			Shape::Line(Vector::new(0.0, -(PLAYER_HEIGHT / 2.0 + GROUND_CHECK))),
+		);
+		let on_ground = self.ground.iter().any(|g| object::collide(&ground_ray, &g.object));
+
+		self.player.color = if on_ground {
+			[0.0, 1.0, 0.0]
+		} else if on_ceiling {
+			[1.0, 0.0, 0.0]
+		} else {
+			[0.0, 0.0, 1.0]
+		};
 
 		let vy = if *self.keys.get(&VirtualKeyCode::Space).unwrap_or(&false) && on_ground {
 			JUMP
@@ -49,11 +101,12 @@ impl World {
 		} else if on_ceiling {
 			CEILING_BOUNCE
 		} else {
-			self.player.vel.y - GRAVITY * delta_time
+			self.player.object.vel.y - GRAVITY * delta_time
 		};
 
-		self.player.vel = Vector::new(vx, vy);
-		self.player.move_and_collide(&self.ground, delta_time);
+		let ground_objects: Vec<&Object> = self.ground.iter().map(|g| &g.object).collect();
+		self.player.object.vel = Vector::new(vx, vy);
+		self.player.object.move_and_collide(&ground_objects, delta_time);
 	}
 }
 
@@ -67,15 +120,20 @@ async fn run() {
 	let mut leftover_time = 0.0;
 
 	let mut world = World {
-		player: Object::new(0.0, 0.5, [0.0, 0.0, 1.0], object::Shape::Aabb(0.1, 0.1)),
+		player: ColoredObject::new(
+			0.0,
+			0.5,
+			[0.0, 0.0, 1.0],
+			Shape::Aabb(Vector::new(PLAYER_HEIGHT / 2.0, PLAYER_HEIGHT)),
+		),
 		ground: vec![
-			Object::new(0.0, 1.5, [0.0; 3], object::Shape::Aabb(3.0, 1.0)),
-			Object::new(0.0, -1.5, [0.0; 3], object::Shape::Aabb(3.0, 1.0)),
-			Object::new(1.5, 0.0, [0.0; 3], object::Shape::Aabb(1.0, 3.0)),
-			Object::new(-1.5, 0.0, [0.0; 3], object::Shape::Aabb(1.0, 3.0)),
-			Object::new(0.5, 0.2, [0.0; 3], object::Shape::Aabb(0.4, 0.1)),
-			Object::new(0.0, -0.2, [0.0; 3], object::Shape::Aabb(0.4, 0.1)),
-			Object::new(-0.5, -0.6, [0.0; 3], object::Shape::Aabb(0.4, 0.1)),
+			ColoredObject::new(0.0, 1.5, [0.0; 3], Shape::Aabb(Vector::new(3.0, 1.0))),
+			ColoredObject::new(0.0, -1.5, [0.0; 3], Shape::Aabb(Vector::new(3.0, 1.0))),
+			ColoredObject::new(1.5, 0.0, [0.0; 3], Shape::Aabb(Vector::new(1.0, 3.0))),
+			ColoredObject::new(-1.5, 0.0, [0.0; 3], Shape::Aabb(Vector::new(1.0, 3.0))),
+			ColoredObject::new(0.5, 0.2, [0.0; 3], Shape::Aabb(Vector::new(0.4, 0.1))),
+			ColoredObject::new(0.0, -0.2, [0.0; 3], Shape::Aabb(Vector::new(0.4, 0.1))),
+			ColoredObject::new(-0.5, -0.6, [0.0; 3], Shape::Aabb(Vector::new(0.4, 0.1))),
 		],
 		keys: HashMap::new(),
 	};

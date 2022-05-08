@@ -1,6 +1,5 @@
 use std::ops::*;
 
-#[allow(dead_code)]
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct Vector {
@@ -19,6 +18,13 @@ impl Sub for Vector {
 	type Output = Vector;
 	fn sub(self, other: Vector) -> Vector {
 		Vector { x: self.x - other.x, y: self.y - other.y }
+	}
+}
+
+impl Mul for Vector {
+	type Output = Vector;
+	fn mul(self, other: Vector) -> Vector {
+		Vector { x: self.x * other.x, y: self.y * other.y }
 	}
 }
 
@@ -41,6 +47,7 @@ impl MulAssign<f32> for Vector {
 	}
 }
 
+#[allow(dead_code)]
 impl Vector {
 	pub fn new(x: f32, y: f32) -> Vector {
 		Vector { x, y }

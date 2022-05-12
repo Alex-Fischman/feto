@@ -7,6 +7,12 @@ pub struct Vector {
 	pub y: f32,
 }
 
+impl std::fmt::Debug for Vector {
+	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+		write!(f, "({}, {})", self.x, self.y)
+	}
+}
+
 impl Add for Vector {
 	type Output = Vector;
 	fn add(self, other: Vector) -> Vector {
@@ -25,6 +31,20 @@ impl Mul for Vector {
 	type Output = Vector;
 	fn mul(self, other: Vector) -> Vector {
 		Vector { x: self.x * other.x, y: self.y * other.y }
+	}
+}
+
+impl Add<f32> for Vector {
+	type Output = Vector;
+	fn add(self, other: f32) -> Vector {
+		Vector { x: self.x + other, y: self.y + other }
+	}
+}
+
+impl Sub<f32> for Vector {
+	type Output = Vector;
+	fn sub(self, other: f32) -> Vector {
+		Vector { x: self.x - other, y: self.y - other }
 	}
 }
 
@@ -51,6 +71,10 @@ impl MulAssign<f32> for Vector {
 impl Vector {
 	pub fn new(x: f32, y: f32) -> Vector {
 		Vector { x, y }
+	}
+
+	pub fn inv(self) -> Vector {
+		Vector { x: 1.0 / self.x, y: 1.0 / self.y }
 	}
 
 	pub fn dot(self, other: Vector) -> f32 {

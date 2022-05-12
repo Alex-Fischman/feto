@@ -44,7 +44,7 @@ impl crate::render::Renderable<render::Color> for ColoredObject {
 }
 
 use std::collections::HashMap;
-use winit::event::VirtualKeyCode;
+use winit::event::{MouseButton, VirtualKeyCode};
 
 const TICKRATE: f32 = 100.0;
 const GRAVITY: f32 = 10.0;
@@ -58,32 +58,55 @@ struct World {
 	player: ColoredObject,
 	ground: Vec<ColoredObject>,
 	spells: Vec<spells::Spell>,
-	keys: HashMap<VirtualKeyCode, KeyState>,
+	elements: Vec<spells::Element>,
+	buttons: HashMap<Button, ButtonState>,
+	mouse: Vector,
+}
+
+#[derive(PartialEq, Eq, Hash)]
+enum Button {
+	Key(VirtualKeyCode),
+	Mouse(MouseButton),
 }
 
 #[derive(Clone, Copy, Debug)]
-enum KeyState {
+enum ButtonState {
 	NotHeld,
 	HeldUnreadPress,
 	HeldReadPress,
 }
 
 impl World {
-	fn is_key_held(&self, key: VirtualKeyCode) -> bool {
-		match self.keys.get(&key) {
-			Some(KeyState::HeldUnreadPress) | Some(KeyState::HeldReadPress) => true,
+	fn is_button_held(&self, button: Button) -> bool {
+		match self.buttons.get(&button) {
+			Some(ButtonState::HeldUnreadPress) | Some(ButtonState::HeldReadPress) => true,
 			_ => false,
 		}
 	}
 
-	fn is_key_pressed(&mut self, key: VirtualKeyCode) -> bool {
-		match self.keys.get(&key) {
-			Some(KeyState::HeldUnreadPress) => {
-				self.keys.insert(key, KeyState::HeldReadPress);
+	fn is_button_pressed(&mut self, button: Button) -> bool {
+		match self.buttons.get(&button) {
+			Some(ButtonState::HeldUnreadPress) => {
+				self.buttons.insert(button, ButtonState::HeldReadPress);
 				true
 			}
 			_ => false,
 		}
+	}
+
+	fn update_button(&mut self, button: Button, state: winit::event::ElementState) {
+		let old = *self.buttons.get(&button).unwrap_or(&ButtonState::NotHeld);
+		self.buttons.insert(
+			button,
+			match state {
+				winit::event::ElementState::Pressed => match old {
+					ButtonState::NotHeld => ButtonState::HeldUnreadPress,
+					ButtonState::HeldUnreadPress => ButtonState::HeldUnreadPress,
+					ButtonState::HeldReadPress => ButtonState::HeldReadPress,
+				},
+				winit::event::ElementState::Released => ButtonState::NotHeld,
+			},
+		);
 	}
 
 	fn update(&mut self) {
@@ -91,9 +114,9 @@ impl World {
 		use winit::event::VirtualKeyCode::*;
 
 		let vx = MOVE
-			* if self.is_key_held(A) {
+			* if self.is_button_held(Button::Key(A)) {
 				-1.0
-			} else if self.is_key_held(D) {
+			} else if self.is_button_held(Button::Key(D)) {
 				1.0
 			} else {
 				0.0
@@ -120,7 +143,7 @@ impl World {
 			[0.0, 0.0, 1.0]
 		};
 
-		let vy = if self.is_key_held(Space) && on_ground {
+		let vy = if self.is_button_held(Button::Key(Space)) && on_ground {
 			JUMP
 		} else if on_ground {
 			0.0
@@ -130,33 +153,46 @@ impl World {
 			self.player.object.vel.y - GRAVITY * delta_time
 		};
 
-		let ground_objects: Vec<&Object> = self.ground.iter().map(|g| &g.object).collect();
+		let ground_objects: Vec<Object> = self.ground.iter().map(|g| g.object.clone()).collect();
 		self.player.object.vel = Vector::new(vx, vy);
 		self.player.object.move_and_collide(&ground_objects, delta_time);
 
 		for key in [Key1, Key2, Key3, Key4, Key5, Key6, Key7, Key8, Key9, Key0] {
-			if self.is_key_pressed(key) {
-				self.spells.push(
-					spells::Spell::new(
-						self.player.object.pos,
-						Vector::new(0.0, 0.0),
-						&[match key {
-							Key1 => spells::Element::Earth,
-							Key2 => spells::Element::Water,
-							Key3 => spells::Element::Air,
-							Key4 => spells::Element::Fire,
-							Key5 => spells::Element::Acid,
-							Key6 => spells::Element::Pressure,
-							Key7 => spells::Element::Shock,
-							Key8 => spells::Element::Radiance,
-							Key9 => spells::Element::Life,
-							Key0 => spells::Element::Void,
-							_ => unreachable!(),
-						}],
-					)
-					.unwrap(),
-				);
+			if self.is_button_pressed(Button::Key(key)) {
+				let element = match key {
+					Key1 => spells::Element::Earth,
+					Key2 => spells::Element::Water,
+					Key3 => spells::Element::Air,
+					Key4 => spells::Element::Fire,
+					Key5 => spells::Element::Acid,
+					Key6 => spells::Element::Pressure,
+					Key7 => spells::Element::Shock,
+					Key8 => spells::Element::Radiance,
+					Key9 => spells::Element::Life,
+					Key0 => spells::Element::Void,
+					_ => unreachable!(),
+				};
+				self.elements.push(element);
 			}
+		}
+
+		if self.is_button_pressed(Button::Mouse(MouseButton::Left)) {
+			if let Some(dir) = (self.mouse - self.player.object.pos).normalized() {
+				if !self.elements.is_empty() {
+					self.spells.push(spells::Spell::new(
+						self.player.object.pos,
+						dir,
+						&self.elements,
+					));
+					self.elements.clear();
+				}
+			}
+		}
+
+		let spell_objects: Vec<&mut Object> =
+			self.spells.iter_mut().map(|s| &mut s.object).collect();
+		for object in spell_objects {
+			object.move_and_collide(&ground_objects, delta_time);
 		}
 	}
 }
@@ -187,7 +223,9 @@ async fn run() {
 			ColoredObject::new(-0.5, -0.6, [0.0; 3], Shape::Aabb(Vector::new(0.4, 0.1))),
 		],
 		spells: vec![],
-		keys: HashMap::new(),
+		elements: vec![],
+		buttons: HashMap::new(),
+		mouse: Vector::new(0.0, 0.0),
 	};
 
 	event_loop.run(move |event, _, control_flow| {
@@ -196,22 +234,28 @@ async fn run() {
 		match event {
 			Event::WindowEvent { event, window_id } if window_id == window.id() => match event {
 				WindowEvent::KeyboardInput { input, .. } => match input.virtual_keycode {
-					Some(key) => {
-						let old = *world.keys.get(&key).unwrap_or(&KeyState::NotHeld);
-						world.keys.insert(
-							key,
-							match input.state {
-								winit::event::ElementState::Pressed => match old {
-									KeyState::NotHeld => KeyState::HeldUnreadPress,
-									KeyState::HeldUnreadPress => KeyState::HeldUnreadPress,
-									KeyState::HeldReadPress => KeyState::HeldReadPress,
-								},
-								winit::event::ElementState::Released => KeyState::NotHeld,
-							},
-						);
-					}
+					Some(key) => world.update_button(Button::Key(key), input.state),
 					None => {}
 				},
+				WindowEvent::MouseInput { button, state, .. } => {
+					world.update_button(Button::Mouse(button), state)
+				}
+				WindowEvent::CursorMoved { position, .. } => {
+					let pixels = Vector::new(position.x as f32, position.y as f32);
+					let aspect = state.config.height as f32 / state.config.width as f32;
+					world.mouse = if aspect < 1.0 {
+						Vector::new(
+							pixels.x / state.config.height as f32 * 2.0 - 1.0 / aspect,
+							pixels.y / state.config.height as f32 * 2.0 - 1.0,
+						)
+					} else {
+						Vector::new(
+							pixels.x / state.config.width as f32 * 2.0 - 1.0,
+							pixels.y / state.config.width as f32 * 2.0 - aspect,
+						)
+					};
+					world.mouse.y *= -1.0;
+				}
 				WindowEvent::Resized(size) => state.resize(size),
 				WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
 					state.resize(*new_inner_size)

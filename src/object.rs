@@ -1,11 +1,13 @@
 use crate::vector::Vector;
 
+#[derive(Clone, Debug)]
 pub struct Object {
 	pub pos: Vector,
 	pub vel: Vector,
 	pub shape: Shape,
 }
 
+#[derive(Clone, Debug)]
 pub enum Shape {
 	Aabb(Vector), // axis aligned bounding box: vector holds width and height
 	Line(Vector), // line segment: vector is the offset of the endpoint
@@ -16,7 +18,7 @@ impl Object {
 		Object { pos: Vector { x, y }, vel: Vector::new(0.0, 0.0), shape }
 	}
 
-	pub fn move_and_collide(&mut self, colliders: &[&Object], delta_time: f32) -> bool {
+	pub fn move_and_collide(&mut self, colliders: &[Object], delta_time: f32) -> bool {
 		let mut collided = false;
 		self.pos += self.vel * delta_time;
 		'outer: loop {
@@ -68,11 +70,11 @@ fn point_aabb(p: Vector, min: Vector, max: Vector) -> bool {
 fn line_aabb(pos: Vector, dir: Vector, min: Vector, max: Vector) -> bool {
 	let t = dir.length();
 	let d = match dir.normalized() {
-		Some(v) => v,
+		Some(v) => v.inv(),
 		None => return point_aabb(pos, min, max),
 	};
-	let t0 = (min - pos) * Vector::new(1.0 / d.x, 1.0 / d.y);
-	let t1 = (max - pos) * Vector::new(1.0 / d.x, 1.0 / d.y);
+	let t0 = (min - pos) * d;
+	let t1 = (max - pos) * d;
 	let tmin = f32::max(f32::min(t0.x, t1.x), f32::min(t0.y, t1.y));
 	let tmax = f32::min(f32::max(t0.x, t1.x), f32::max(t0.y, t1.y));
 	return tmin <= t && t <= tmax;

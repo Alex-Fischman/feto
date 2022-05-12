@@ -30,11 +30,8 @@ pub struct Spell {
 }
 
 impl Spell {
-	pub fn new(pos: Vector, vel: Vector, elements: &[Element]) -> Option<Spell> {
-		if elements.is_empty() {
-			return None;
-		}
-		let mut stats = Spell {
+	pub fn new(pos: Vector, vel: Vector, elements: &[Element]) -> Spell {
+		let mut spell = Spell {
 			object: Object { pos, vel, shape: Shape::Aabb(Vector::new(0.1, 0.1)) },
 			element: elements[0],
 			strength: 1.0,
@@ -48,27 +45,27 @@ impl Spell {
 		};
 		for modifier in &elements[1..] {
 			match modifier {
-				Element::Earth => stats.is_trap = true,
-				Element::Water => stats.range = 0.0,
-				Element::Air => stats.range += 1.0,
-				Element::Fire => stats.speed += 1.0,
-				Element::Acid => stats.duration += 1.0,
+				Element::Earth => spell.is_trap = true, // earth could be -speed instead
+				Element::Water => spell.range = 0.0,
+				Element::Air => spell.range += 1.0,
+				Element::Fire => spell.speed += 1.0,
+				Element::Acid => spell.duration += 1.0,
 				Element::Pressure => {
-					stats.area *= 0.5;
-					stats.strength += 0.5;
+					spell.area *= 0.5;
+					spell.strength += 0.5;
 				}
 				Element::Shock => {
-					stats.duration *= 0.5;
-					stats.strength *= 2.0;
+					spell.duration *= 0.5;
+					spell.strength *= 2.0;
 				}
-				Element::Radiance => stats.area += 1.0,
-				Element::Life => stats.strength += 1.0,
-				Element::Void => stats.is_inverted = !stats.is_inverted,
+				Element::Radiance => spell.area += 1.0,
+				Element::Life => spell.strength += 1.0,
+				Element::Void => spell.is_inverted = !spell.is_inverted,
 			}
-			stats.cost += match modifier {
-				Element::Earth => !stats.is_trap as u8 as f32,
+			spell.cost += match modifier {
+				Element::Earth => !spell.is_trap as u8 as f32,
 				Element::Void => 0.0,
-				Element::Life => stats.cost,
+				Element::Life => spell.cost,
 				Element::Water
 				| Element::Air
 				| Element::Fire
@@ -78,7 +75,7 @@ impl Spell {
 				| Element::Radiance => 1.0,
 			}
 		}
-		Some(stats)
+		spell
 	}
 }
 

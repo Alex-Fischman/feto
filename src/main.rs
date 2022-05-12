@@ -1,24 +1,24 @@
 mod object;
 mod render;
+mod spells;
 mod vector;
 
 use object::{Object, Shape};
 use vector::Vector;
 
-type Color = [f32; 3];
 struct ColoredObject {
 	object: Object,
-	color: Color,
+	color: render::Color,
 }
 
 impl ColoredObject {
-	fn new(x: f32, y: f32, color: Color, shape: Shape) -> ColoredObject {
+	fn new(x: f32, y: f32, color: render::Color, shape: Shape) -> ColoredObject {
 		ColoredObject { object: Object::new(x, y, shape), color }
 	}
 }
 
 use render::Vertex;
-impl crate::render::Renderable<Color> for ColoredObject {
+impl crate::render::Renderable<render::Color> for ColoredObject {
 	fn shader(&self) -> wgpu::ShaderModuleDescriptor {
 		wgpu::include_wgsl!("flat.wgsl")
 	}
@@ -27,7 +27,7 @@ impl crate::render::Renderable<Color> for ColoredObject {
 		wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x3].to_vec()
 	}
 
-	fn vertices(&self) -> Vec<Vertex<Color>> {
+	fn vertices(&self) -> Vec<Vertex<render::Color>> {
 		let p = self.object.pos;
 		match self.object.shape {
 			Shape::Aabb(Vector { x: w, y: h }) => vec![
@@ -57,17 +57,43 @@ const GROUND_CHECK: f32 = 0.0001;
 struct World {
 	player: ColoredObject,
 	ground: Vec<ColoredObject>,
-	keys: HashMap<VirtualKeyCode, bool>,
+	spells: Vec<spells::Spell>,
+	keys: HashMap<VirtualKeyCode, KeyState>,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum KeyState {
+	NotHeld,
+	HeldUnreadPress,
+	HeldReadPress,
 }
 
 impl World {
+	fn is_key_held(&self, key: VirtualKeyCode) -> bool {
+		match self.keys.get(&key) {
+			Some(KeyState::HeldUnreadPress) | Some(KeyState::HeldReadPress) => true,
+			_ => false,
+		}
+	}
+
+	fn is_key_pressed(&mut self, key: VirtualKeyCode) -> bool {
+		match self.keys.get(&key) {
+			Some(KeyState::HeldUnreadPress) => {
+				self.keys.insert(key, KeyState::HeldReadPress);
+				true
+			}
+			_ => false,
+		}
+	}
+
 	fn update(&mut self) {
 		let delta_time = 1.0 / TICKRATE;
+		use winit::event::VirtualKeyCode::*;
 
 		let vx = MOVE
-			* if *self.keys.get(&VirtualKeyCode::A).unwrap_or(&false) {
+			* if self.is_key_held(A) {
 				-1.0
-			} else if *self.keys.get(&VirtualKeyCode::D).unwrap_or(&false) {
+			} else if self.is_key_held(D) {
 				1.0
 			} else {
 				0.0
@@ -94,7 +120,7 @@ impl World {
 			[0.0, 0.0, 1.0]
 		};
 
-		let vy = if *self.keys.get(&VirtualKeyCode::Space).unwrap_or(&false) && on_ground {
+		let vy = if self.is_key_held(Space) && on_ground {
 			JUMP
 		} else if on_ground {
 			0.0
@@ -107,6 +133,31 @@ impl World {
 		let ground_objects: Vec<&Object> = self.ground.iter().map(|g| &g.object).collect();
 		self.player.object.vel = Vector::new(vx, vy);
 		self.player.object.move_and_collide(&ground_objects, delta_time);
+
+		for key in [Key1, Key2, Key3, Key4, Key5, Key6, Key7, Key8, Key9, Key0] {
+			if self.is_key_pressed(key) {
+				self.spells.push(
+					spells::Spell::new(
+						self.player.object.pos,
+						Vector::new(0.0, 0.0),
+						&[match key {
+							Key1 => spells::Element::Earth,
+							Key2 => spells::Element::Water,
+							Key3 => spells::Element::Air,
+							Key4 => spells::Element::Fire,
+							Key5 => spells::Element::Acid,
+							Key6 => spells::Element::Pressure,
+							Key7 => spells::Element::Shock,
+							Key8 => spells::Element::Radiance,
+							Key9 => spells::Element::Life,
+							Key0 => spells::Element::Void,
+							_ => unreachable!(),
+						}],
+					)
+					.unwrap(),
+				);
+			}
+		}
 	}
 }
 
@@ -135,6 +186,7 @@ async fn run() {
 			ColoredObject::new(0.0, -0.2, [0.0; 3], Shape::Aabb(Vector::new(0.4, 0.1))),
 			ColoredObject::new(-0.5, -0.6, [0.0; 3], Shape::Aabb(Vector::new(0.4, 0.1))),
 		],
+		spells: vec![],
 		keys: HashMap::new(),
 	};
 
@@ -145,11 +197,16 @@ async fn run() {
 			Event::WindowEvent { event, window_id } if window_id == window.id() => match event {
 				WindowEvent::KeyboardInput { input, .. } => match input.virtual_keycode {
 					Some(key) => {
+						let old = *world.keys.get(&key).unwrap_or(&KeyState::NotHeld);
 						world.keys.insert(
 							key,
 							match input.state {
-								winit::event::ElementState::Pressed => true,
-								winit::event::ElementState::Released => false,
+								winit::event::ElementState::Pressed => match old {
+									KeyState::NotHeld => KeyState::HeldUnreadPress,
+									KeyState::HeldUnreadPress => KeyState::HeldUnreadPress,
+									KeyState::HeldReadPress => KeyState::HeldReadPress,
+								},
+								winit::event::ElementState::Released => KeyState::NotHeld,
 							},
 						);
 					}
@@ -209,6 +266,9 @@ async fn run() {
 							state.render(object, &mut encoder, &view);
 						}
 						state.render(&world.player, &mut encoder, &view);
+						for object in &world.spells {
+							state.render(object, &mut encoder, &view);
+						}
 						state.queue.submit(std::iter::once(encoder.finish()));
 						output.present();
 					}

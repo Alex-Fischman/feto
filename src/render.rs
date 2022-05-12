@@ -21,6 +21,8 @@ pub trait Renderable<VertexData> {
 	fn vertices(&self) -> Vec<Vertex<VertexData>>;
 }
 
+pub type Color = [f32; 3];
+
 impl State {
 	pub async fn new(window: &winit::window::Window) -> State {
 		let instance = wgpu::Instance::new(wgpu::Backends::all());

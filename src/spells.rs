@@ -25,7 +25,6 @@ pub struct Spell {
 	pub speed: f32,
 	pub area: f32,
 	pub is_inverted: bool,
-	pub is_trap: bool,
 	pub cost: f32,
 }
 
@@ -40,12 +39,11 @@ impl Spell {
 			speed: 1.0,
 			area: 1.0,
 			is_inverted: false,
-			is_trap: false,
 			cost: 1.0,
 		};
 		for modifier in &elements[1..] {
 			match modifier {
-				Element::Earth => spell.is_trap = true, // earth could be -speed instead
+				Element::Earth => spell.speed = 0.0,
 				Element::Water => spell.range = 0.0,
 				Element::Air => spell.range += 1.0,
 				Element::Fire => spell.speed += 1.0,
@@ -56,26 +54,25 @@ impl Spell {
 				}
 				Element::Shock => {
 					spell.duration *= 0.5;
-					spell.strength *= 2.0;
+					spell.strength += 0.5;
 				}
 				Element::Radiance => spell.area += 1.0,
 				Element::Life => spell.strength += 1.0,
 				Element::Void => spell.is_inverted = !spell.is_inverted,
 			}
 			spell.cost += match modifier {
-				Element::Earth => !spell.is_trap as u8 as f32,
 				Element::Void => 0.0,
 				Element::Life => spell.cost,
-				Element::Water
-				| Element::Air
-				| Element::Fire
-				| Element::Acid
-				| Element::Shock
-				| Element::Pressure
-				| Element::Radiance => 1.0,
+				_ => 1.0,
 			}
 		}
 		spell
+	}
+
+	pub fn activate(&mut self) {
+		match (self.element, self.is_inverted) {
+			_ => todo!(),
+		}
 	}
 }
 

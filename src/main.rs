@@ -50,6 +50,7 @@ const TICKRATE: f32 = 100.0;
 const GRAVITY: f32 = 10.0;
 const JUMP: f32 = 3.0;
 const MOVE: f32 = 1.0;
+const SPELL_SPEED: f32 = 5.0;
 const CEILING_BOUNCE: f32 = -0.01;
 const PLAYER_HEIGHT: f32 = 0.2;
 const GROUND_CHECK: f32 = 0.0001;
@@ -181,7 +182,7 @@ impl World {
 				if !self.elements.is_empty() {
 					self.spells.push(spells::Spell::new(
 						self.player.object.pos,
-						dir,
+						dir * SPELL_SPEED,
 						&self.elements,
 					));
 					self.elements.clear();
@@ -189,10 +190,15 @@ impl World {
 			}
 		}
 
-		let spell_objects: Vec<&mut Object> =
-			self.spells.iter_mut().map(|s| &mut s.object).collect();
-		for object in spell_objects {
-			object.move_and_collide(&ground_objects, delta_time);
+		let mut hits = vec![];
+		for (i, spell) in self.spells.iter_mut().enumerate() {
+			if spell.object.move_and_collide(&ground_objects, delta_time) {
+				hits.push(i);
+			}
+			spell.object.vel.y -= GRAVITY * delta_time;
+		}
+		for i in hits.into_iter().rev() {
+			self.spells.remove(i);
 		}
 	}
 }

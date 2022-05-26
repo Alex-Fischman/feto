@@ -4,46 +4,9 @@ mod spells;
 mod vector;
 
 use object::{Object, Shape};
-use vector::Vector;
-
-struct ColoredObject {
-	object: Object,
-	color: render::Color,
-}
-
-impl ColoredObject {
-	fn new(x: f32, y: f32, color: render::Color, shape: Shape) -> ColoredObject {
-		ColoredObject { object: Object::new(x, y, shape), color }
-	}
-}
-
 use render::Vertex;
-impl crate::render::Renderable<render::Color> for ColoredObject {
-	fn shader(&self) -> wgpu::ShaderModuleDescriptor {
-		wgpu::include_wgsl!("flat.wgsl")
-	}
-
-	fn vertex_layout(&self) -> Vec<wgpu::VertexAttribute> {
-		wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x3].to_vec()
-	}
-
-	fn vertices(&self) -> Vec<Vertex<render::Color>> {
-		let p = self.object.pos;
-		match self.object.shape {
-			Shape::Aabb(Vector { x: w, y: h }) => vec![
-				Vertex::new(p.x - w / 2.0, p.y - h / 2.0, self.color),
-				Vertex::new(p.x + w / 2.0, p.y - h / 2.0, self.color),
-				Vertex::new(p.x - w / 2.0, p.y + h / 2.0, self.color),
-				Vertex::new(p.x + w / 2.0, p.y + h / 2.0, self.color),
-				Vertex::new(p.x - w / 2.0, p.y + h / 2.0, self.color),
-				Vertex::new(p.x + w / 2.0, p.y - h / 2.0, self.color),
-			],
-			Shape::Line(_dir) => todo!(),
-		}
-	}
-}
-
 use std::collections::HashMap;
+use vector::Vector;
 use winit::event::{MouseButton, VirtualKeyCode};
 
 const TICKRATE: f32 = 100.0;
@@ -55,10 +18,18 @@ const CEILING_BOUNCE: f32 = -0.01;
 const PLAYER_HEIGHT: f32 = 0.2;
 const GROUND_CHECK: f32 = 0.0001;
 
+type Id = usize;
+type System<Data> = HashMap<Id, Data>;
+
 struct World {
-	player: ColoredObject,
-	ground: Vec<ColoredObject>,
-	spells: Vec<spells::Spell>,
+	player_id: Id,
+	ground_ids: Vec<Id>,
+	total_ids: Id,
+
+	objects: System<Object>,
+	colors: System<render::Color>,
+	spells: System<spells::Spell>,
+
 	elements: Vec<spells::Element>,
 	buttons: HashMap<Button, ButtonState>,
 	mouse: Vector,
@@ -123,20 +94,31 @@ impl World {
 				0.0
 			};
 
+		let Object { pos: player_pos, vel: player_vel, .. } =
+			self.objects.get(&self.player_id).unwrap();
+		let player_pos = player_pos.clone();
+		let player_vel = player_vel.clone();
+
 		let ceiling_ray = Object::new(
-			self.player.object.pos.x,
-			self.player.object.pos.y,
+			player_pos.x,
+			player_pos.y,
 			Shape::Line(Vector::new(0.0, PLAYER_HEIGHT / 2.0 + GROUND_CHECK)),
 		);
-		let on_ceiling = self.ground.iter().any(|g| object::collide(&ceiling_ray, &g.object));
+		let on_ceiling = self
+			.ground_ids
+			.iter()
+			.any(|id| object::collide(&ceiling_ray, &self.objects.get(id).unwrap()));
 		let ground_ray = Object::new(
-			self.player.object.pos.x,
-			self.player.object.pos.y,
+			player_pos.x,
+			player_pos.y,
 			Shape::Line(Vector::new(0.0, -(PLAYER_HEIGHT / 2.0 + GROUND_CHECK))),
 		);
-		let on_ground = self.ground.iter().any(|g| object::collide(&ground_ray, &g.object));
+		let on_ground = self
+			.ground_ids
+			.iter()
+			.any(|id| object::collide(&ground_ray, &self.objects.get(id).unwrap()));
 
-		self.player.color = if on_ground {
+		*self.colors.get_mut(&self.player_id).unwrap() = if on_ground {
 			[0.0, 1.0, 0.0]
 		} else if on_ceiling {
 			[1.0, 0.0, 0.0]
@@ -151,12 +133,16 @@ impl World {
 		} else if on_ceiling {
 			CEILING_BOUNCE
 		} else {
-			self.player.object.vel.y - GRAVITY * delta_time
+			player_vel.y - GRAVITY * delta_time
 		};
 
-		let ground_objects: Vec<Object> = self.ground.iter().map(|g| g.object.clone()).collect();
-		self.player.object.vel = Vector::new(vx, vy);
-		self.player.object.move_and_collide(&ground_objects, delta_time);
+		let ground_objects: Vec<Object> =
+			self.ground_ids.iter().map(|id| self.objects.get(id).unwrap().clone()).collect();
+		self.objects.get_mut(&self.player_id).unwrap().vel = Vector::new(vx, vy);
+		self.objects
+			.get_mut(&self.player_id)
+			.unwrap()
+			.move_and_collide(&ground_objects, delta_time);
 
 		for key in [Key1, Key2, Key3, Key4, Key5, Key6, Key7, Key8, Key9, Key0] {
 			if self.is_button_pressed(Button::Key(key)) {
@@ -178,27 +164,32 @@ impl World {
 		}
 
 		if self.is_button_pressed(Button::Mouse(MouseButton::Left)) {
-			if let Some(dir) = (self.mouse - self.player.object.pos).normalized() {
+			if let Some(dir) = (self.mouse - player_pos).normalized() {
 				if !self.elements.is_empty() {
-					self.spells.push(spells::Spell::new(
-						self.player.object.pos,
-						dir * SPELL_SPEED,
-						&self.elements,
-					));
+					let spell_id = self.total_ids;
+					self.total_ids += 1;
+					let spell_object = Object {
+						pos: player_pos,
+						vel: dir * SPELL_SPEED,
+						shape: Shape::Aabb(Vector::new(0.1, 0.1)),
+					};
+					self.objects.insert(spell_id, spell_object);
+					self.spells.insert(spell_id, spells::Spell::new(&self.elements));
 					self.elements.clear();
 				}
 			}
 		}
 
 		let mut hits = vec![];
-		for (i, spell) in self.spells.iter_mut().enumerate() {
-			if spell.object.move_and_collide(&ground_objects, delta_time) {
-				hits.push(i);
+		for (id, _) in self.spells.iter_mut() {
+			let spell = self.objects.get_mut(&id).unwrap();
+			if spell.move_and_collide(&ground_objects, delta_time) {
+				hits.push(*id);
 			}
-			spell.object.vel.y -= GRAVITY * delta_time;
+			spell.vel.y -= GRAVITY * delta_time;
 		}
-		for i in hits.into_iter().rev() {
-			self.spells.remove(i);
+		for id in hits {
+			self.spells.remove(&id);
 		}
 	}
 }
@@ -213,22 +204,39 @@ async fn run() {
 	let mut leftover_time = 0.0;
 
 	let mut world = World {
-		player: ColoredObject::new(
-			0.0,
-			0.5,
-			[0.0, 0.0, 1.0],
-			Shape::Aabb(Vector::new(PLAYER_HEIGHT / 2.0, PLAYER_HEIGHT)),
-		),
-		ground: vec![
-			ColoredObject::new(0.0, 1.5, [0.0; 3], Shape::Aabb(Vector::new(3.0, 1.0))),
-			ColoredObject::new(0.0, -1.5, [0.0; 3], Shape::Aabb(Vector::new(3.0, 1.0))),
-			ColoredObject::new(1.5, 0.0, [0.0; 3], Shape::Aabb(Vector::new(1.0, 3.0))),
-			ColoredObject::new(-1.5, 0.0, [0.0; 3], Shape::Aabb(Vector::new(1.0, 3.0))),
-			ColoredObject::new(0.5, 0.2, [0.0; 3], Shape::Aabb(Vector::new(0.4, 0.1))),
-			ColoredObject::new(0.0, -0.2, [0.0; 3], Shape::Aabb(Vector::new(0.4, 0.1))),
-			ColoredObject::new(-0.5, -0.6, [0.0; 3], Shape::Aabb(Vector::new(0.4, 0.1))),
-		],
-		spells: vec![],
+		player_id: 0,
+		ground_ids: vec![1, 2, 3, 4, 5, 6, 7],
+		total_ids: 8,
+
+		objects: HashMap::from([
+			(
+				0,
+				Object::new(
+					0.0,
+					0.5,
+					Shape::Aabb(Vector::new(PLAYER_HEIGHT / 2.0, PLAYER_HEIGHT)),
+				),
+			),
+			(1, Object::new(0.0, 1.5, Shape::Aabb(Vector::new(3.0, 1.0)))),
+			(2, Object::new(0.0, -1.5, Shape::Aabb(Vector::new(3.0, 1.0)))),
+			(3, Object::new(1.5, 0.0, Shape::Aabb(Vector::new(1.0, 3.0)))),
+			(4, Object::new(-1.5, 0.0, Shape::Aabb(Vector::new(1.0, 3.0)))),
+			(5, Object::new(0.5, 0.2, Shape::Aabb(Vector::new(0.4, 0.1)))),
+			(6, Object::new(0.0, -0.2, Shape::Aabb(Vector::new(0.4, 0.1)))),
+			(7, Object::new(-0.5, -0.6, Shape::Aabb(Vector::new(0.4, 0.1)))),
+		]),
+		colors: HashMap::from([
+			(0, [0.0, 0.0, 1.0]),
+			(1, [0.0; 3]),
+			(2, [0.0; 3]),
+			(3, [0.0; 3]),
+			(4, [0.0; 3]),
+			(5, [0.0; 3]),
+			(6, [0.0; 3]),
+			(7, [0.0; 3]),
+		]),
+		spells: HashMap::new(),
+
 		elements: vec![],
 		buttons: HashMap::new(),
 		mouse: Vector::new(0.0, 0.0),
@@ -312,12 +320,48 @@ async fn run() {
 							}],
 							depth_stencil_attachment: None,
 						});
-						for object in &world.ground {
-							state.render(object, &mut encoder, &view);
-						}
-						state.render(&world.player, &mut encoder, &view);
-						for object in &world.spells {
-							state.render(object, &mut encoder, &view);
+
+						for (id, color) in
+							world.colors.iter().map(|(id, color)| (id, *color)).chain(
+								world.spells.iter().map(|(id, spell)| {
+									(
+										id,
+										match spell.element {
+											spells::Element::Earth => [0.4, 0.2, 0.0],
+											spells::Element::Void => [0.0, 0.0, 0.0],
+											spells::Element::Life => [1.0, 1.0, 1.0],
+											spells::Element::Water => [0.0, 0.0, 1.0],
+											spells::Element::Air => [0.0, 1.0, 1.0],
+											spells::Element::Fire => [1.0, 0.0, 0.0],
+											spells::Element::Acid => [0.0, 1.0, 0.0],
+											spells::Element::Shock => [1.0, 1.0, 0.0],
+											spells::Element::Pressure => [0.4, 0.6, 1.0],
+											spells::Element::Radiance => [1.0, 0.0, 1.0],
+										},
+									)
+								}),
+							) {
+							let object = world.objects.get(id).unwrap();
+							let p = object.pos;
+							let vertices = match object.shape {
+								Shape::Aabb(Vector { x: w, y: h }) => vec![
+									Vertex::new(p.x - w / 2.0, p.y - h / 2.0, color),
+									Vertex::new(p.x + w / 2.0, p.y - h / 2.0, color),
+									Vertex::new(p.x - w / 2.0, p.y + h / 2.0, color),
+									Vertex::new(p.x + w / 2.0, p.y + h / 2.0, color),
+									Vertex::new(p.x - w / 2.0, p.y + h / 2.0, color),
+									Vertex::new(p.x + w / 2.0, p.y - h / 2.0, color),
+								],
+								Shape::Line(_dir) => todo!(),
+							};
+							state.render(
+								&mut encoder,
+								&view,
+								&wgpu::include_wgsl!("flat.wgsl"),
+								&wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x3]
+									.to_vec(),
+								vertices,
+							);
 						}
 						state.queue.submit(std::iter::once(encoder.finish()));
 						output.present();

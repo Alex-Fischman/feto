@@ -15,12 +15,6 @@ pub struct Vertex<VertexData> {
 	pub data: VertexData,
 }
 
-pub trait Renderable<VertexData> {
-	fn shader(&self) -> wgpu::ShaderModuleDescriptor;
-	fn vertex_layout(&self) -> Vec<wgpu::VertexAttribute>;
-	fn vertices(&self) -> Vec<Vertex<VertexData>>;
-}
-
 pub type Color = [f32; 3];
 
 impl State {
@@ -65,11 +59,13 @@ impl State {
 
 	pub fn render<VertexData>(
 		&self,
-		renderable: &dyn Renderable<VertexData>,
 		encoder: &mut wgpu::CommandEncoder,
 		view: &wgpu::TextureView,
+		shader: &wgpu::ShaderModuleDescriptor,
+		vertex_layout: &[wgpu::VertexAttribute],
+		vertices: Vec<Vertex<VertexData>>,
 	) {
-		let mut vertices = renderable.vertices();
+		let mut vertices = vertices;
 		let aspect = self.config.height as f32 / self.config.width as f32;
 		for vertex in &mut vertices {
 			if aspect < 1.0 {
@@ -84,7 +80,7 @@ impl State {
 			contents: bytes(&vertices),
 			usage: wgpu::BufferUsages::VERTEX,
 		});
-		let shader = self.device.create_shader_module(&renderable.shader());
+		let shader = self.device.create_shader_module(shader);
 		let pipeline = self.device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
 			label: None,
 			layout: None,
@@ -95,7 +91,7 @@ impl State {
 					array_stride: std::mem::size_of::<Vertex<VertexData>>()
 						as wgpu::BufferAddress,
 					step_mode: wgpu::VertexStepMode::Vertex,
-					attributes: &renderable.vertex_layout(),
+					attributes: &vertex_layout,
 				}],
 			},
 			primitive: wgpu::PrimitiveState {

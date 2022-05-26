@@ -14,26 +14,31 @@ pub enum Element {
 
 pub struct Spell {
 	pub element: Element,
-	pub strength: f32,
-	pub duration: f32,
-	pub range: f32,
-	pub speed: f32,
-	pub area: f32,
 	pub is_inverted: bool,
-	pub cost: f32,
+	// cast mods
+	pub range: f32, // todo
+	pub speed: f32,
+	pub cost: f32, // todo
+	// effect mods
+	pub strength: f32, // todo
+	pub duration: f32, // todo
+	pub area: f32,     // todo
+	// non-constant data
+	pub dist_traveled: f32,
 }
 
 impl Spell {
 	pub fn new(elements: &[Element]) -> Spell {
 		let mut spell = Spell {
 			element: elements[0],
-			strength: 1.0,
-			duration: 1.0,
+			is_inverted: false,
 			range: 1.0,
 			speed: 1.0,
-			area: 1.0,
-			is_inverted: false,
 			cost: 1.0,
+			strength: 1.0,
+			duration: 1.0,
+			area: 1.0,
+			dist_traveled: 0.0,
 		};
 		for modifier in &elements[1..] {
 			match modifier {
@@ -61,11 +66,5 @@ impl Spell {
 			}
 		}
 		spell
-	}
-
-	pub fn activate(&mut self) {
-		match (self.element, self.is_inverted) {
-			_ => todo!(),
-		}
 	}
 }

@@ -13,7 +13,8 @@ const TICKRATE: f32 = 100.0;
 const GRAVITY: f32 = 10.0;
 const JUMP: f32 = 3.0;
 const MOVE: f32 = 1.0;
-const SPELL_SPEED: f32 = 5.0;
+const BASE_SPELL_SPEED: f32 = 5.0;
+const BASE_SPELL_RANGE: f32 = 2.0;
 const CEILING_BOUNCE: f32 = -0.01;
 const PLAYER_HEIGHT: f32 = 0.2;
 const GROUND_CHECK: f32 = 0.0001;
@@ -98,25 +99,29 @@ impl World {
 			self.objects.get(&self.player_id).unwrap();
 		let player_pos = player_pos.clone();
 		let player_vel = player_vel.clone();
+		let ground_objects: Vec<Object> =
+			self.ground_ids.iter().map(|id| self.objects.get(id).unwrap().clone()).collect();
 
-		let ceiling_ray = Object::new(
-			player_pos.x,
-			player_pos.y,
-			Shape::Line(Vector::new(0.0, PLAYER_HEIGHT / 2.0 + GROUND_CHECK)),
-		);
-		let on_ceiling = self
-			.ground_ids
-			.iter()
-			.any(|id| object::collide(&ceiling_ray, &self.objects.get(id).unwrap()));
-		let ground_ray = Object::new(
-			player_pos.x,
-			player_pos.y,
-			Shape::Line(Vector::new(0.0, -(PLAYER_HEIGHT / 2.0 + GROUND_CHECK))),
-		);
-		let on_ground = self
-			.ground_ids
-			.iter()
-			.any(|id| object::collide(&ground_ray, &self.objects.get(id).unwrap()));
+		let on_ceiling = ground_objects.iter().any(|g| {
+			object::collide(
+				&Object::new(
+					player_pos.x,
+					player_pos.y,
+					Shape::Line(Vector::new(0.0, PLAYER_HEIGHT / 2.0 + GROUND_CHECK)),
+				),
+				g,
+			)
+		});
+		let on_ground = ground_objects.iter().any(|g| {
+			object::collide(
+				&Object::new(
+					player_pos.x,
+					player_pos.y,
+					Shape::Line(Vector::new(0.0, -(PLAYER_HEIGHT / 2.0 + GROUND_CHECK))),
+				),
+				g,
+			)
+		});
 
 		*self.colors.get_mut(&self.player_id).unwrap() = if on_ground {
 			[0.0, 1.0, 0.0]
@@ -136,8 +141,6 @@ impl World {
 			player_vel.y - GRAVITY * delta_time
 		};
 
-		let ground_objects: Vec<Object> =
-			self.ground_ids.iter().map(|id| self.objects.get(id).unwrap().clone()).collect();
 		self.objects.get_mut(&self.player_id).unwrap().vel = Vector::new(vx, vy);
 		self.objects
 			.get_mut(&self.player_id)
@@ -168,28 +171,45 @@ impl World {
 				if !self.elements.is_empty() {
 					let spell_id = self.total_ids;
 					self.total_ids += 1;
+					let spell_stats = spells::Spell::new(&self.elements);
 					let spell_object = Object {
 						pos: player_pos,
-						vel: dir * SPELL_SPEED,
+						vel: dir * BASE_SPELL_SPEED * spell_stats.speed,
 						shape: Shape::Aabb(Vector::new(0.1, 0.1)),
 					};
 					self.objects.insert(spell_id, spell_object);
-					self.spells.insert(spell_id, spells::Spell::new(&self.elements));
+					self.spells.insert(spell_id, spell_stats);
 					self.elements.clear();
 				}
 			}
 		}
 
 		let mut hits = vec![];
-		for (id, _) in self.spells.iter_mut() {
+		for (id, stats) in self.spells.iter_mut() {
+			let objects: Vec<Object> = self
+				.objects
+				.iter()
+				.filter(|t| *t.0 != self.player_id && t.0 != id)
+				.map(|t| t.1.clone())
+				.collect();
 			let spell = self.objects.get_mut(&id).unwrap();
-			if spell.move_and_collide(&ground_objects, delta_time) {
+			let start_pos = spell.pos.clone();
+			if spell.move_and_collide(&objects, delta_time)
+				|| stats.dist_traveled > stats.range * BASE_SPELL_RANGE
+			{
 				hits.push(*id);
+			} else {
+				stats.dist_traveled += (spell.pos - start_pos).length();
+				spell.vel.y -= GRAVITY * delta_time;
 			}
-			spell.vel.y -= GRAVITY * delta_time;
 		}
 		for id in hits {
 			self.spells.remove(&id);
+			self.objects.remove(&id);
+			// let spell = self.spells.get(&id).unwrap();
+			// match spell.element {
+			// 	_ => todo!(),
+			// }
 		}
 	}
 }
